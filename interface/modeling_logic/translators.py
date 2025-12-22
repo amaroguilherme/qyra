@@ -122,3 +122,39 @@ class ConflictTranslator:
                     q_matrix[j, i] = self.penalty
                     
         return q_matrix.tolist()
+
+
+class OneHotTranslator:
+    def __init__(self, penalty=5.0):
+        """
+        Args:
+            penalty (float): The strength of the constraint. It must be greater than any distance cost in 
+            the problem to guarantee validity.
+        """
+        self.penalty = penalty
+
+    def apply_one_hot(self, q_matrix, indices):
+        """
+        Applies the "Choose Exactly One" constraint to a subgroup of variables.
+        Modifies the q_matrix in-place.
+
+        Args:
+            q_matrix (list of lists): The current Q matrix. 
+            indices (list of int): The indices of the variables that form the group. 
+            Example: [0, 1, 2] means that among x0, x1, and x2,
+            only one can be 1.
+        """
+        # Apply the bias diagonally (-Penalty)
+        for i in indices:
+            q_matrix[i][i] += -self.penalty
+
+        # Apply the penalty to the interactions (+2 * Penalty)
+        for i in range(len(indices)):
+            for j in range(i + 1, len(indices)):
+                u = indices[i]
+                v = indices[j]
+
+                q_matrix[u][v] += self.penalty
+                q_matrix[v][u] += self.penalty
+
+        return q_matrix
