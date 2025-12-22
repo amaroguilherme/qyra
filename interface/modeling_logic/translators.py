@@ -63,3 +63,62 @@ class AffinityTranslator:
                         q_matrix[i, j] = -1.0 * val
 
         return q_matrix.tolist()
+
+class ConflictTranslator:
+    def __init__(self, penalty=2.0):
+        """
+        Args:
+            penalty (float): The cost of violating a rule. 
+                It must be greater than the sum of the rewards of the involved nodes. 
+                Example: If Reward is 1.0, Penalty should be > 1.0 (ideally 2.0+).
+        """
+        self.penalty = penalty
+
+
+    def from_conflict_list(self, num_items, conflict_pairs, weights=None):
+        """
+        Generates the matrix Q from a list of forbidden pairs.
+
+        Args:
+            num_items (int): Total number of variables (tasks, antennas, etc.). 
+            conflict_pairs (list of tuples): List, e.g., [(0, 1), (1, 3)] meaning that
+            0 conflicts with 1, and 1 conflicts with 3.
+            weights (list, optional): Importance of each item. If None, assumes all weights are 1.0.
+        """
+        q_matrix = np.zeros((num_items, num_items))
+
+        # Fill the Diagonal (Reward for choosing the item)
+        for i in range(num_items):
+            if weights:
+                # If the item is important, the reward is greater (more negative).
+                q_matrix[i, i] = -1.0 * abs(weights[i])
+            else:
+                q_matrix[i, i] = -1.0
+
+        # Fill in the Interactions (Penalties for conflict)
+        for (u, v) in conflict_pairs:
+            if u >= num_items or v >= num_items:
+                continue
+
+            q_matrix[u, v] = self.penalty
+            q_matrix[v, u] = self.penalty # Matrix must be symmetrical
+
+        return q_matrix.tolist()
+
+
+    def from_adjacency_matrix(self, adj_matrix):
+        """
+        If you already have a matrix where 1 = Conflict and 0 = Free.
+        """
+        n = len(adj_matrix)
+        q_matrix = np.zeros((n, n))
+        
+        for i in range(n):
+            q_matrix[i, i] = -1.0 
+            
+            for j in range(i + 1, n):
+                if adj_matrix[i][j] > 0:
+                    q_matrix[i, j] = self.penalty
+                    q_matrix[j, i] = self.penalty
+                    
+        return q_matrix.tolist()
