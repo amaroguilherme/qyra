@@ -3,7 +3,7 @@ import torch.nn as nn
 import core_qyra_solver
 import time
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GATConv, GCNConv
 
 class GNNBase(nn.Module):
     def __init__(self, num_vars):
@@ -62,6 +62,57 @@ class GCNClassifier(nn.Module):
         x = F.dropout(x, p=self.dropout_rate, training=self.training)
 
         x = self.conv3(x, edge_index)
+
+        return torch.sigmoid(x)
+    
+
+class GATClassifier(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels, out_channels=1, heads=4, dropout_rate=0.6):
+        """
+        GAT (Graph Attention Network) for node prediction.
+
+        Args:
+            in_channels (int): Number of input features (e.g., time series size). 
+            hidden_channels (int): Size of the hidden layer. 
+            out_channels (int): 1 for binary probability. 
+            heads (int): Number of "attention heads". How many independent views
+            the network will have on each connection. Default=4 or 8.
+            dropout_rate (float): GATs need high dropout to avoid overfitting.
+        """
+        super(GATClassifier, self).__init__()
+        
+        self.dropout_rate = dropout_rate
+
+        # If hidden=16 and heads=4, the actual output will be 16*4 = 64 features.
+        self.conv1 = GATConv(
+            in_channels, 
+            hidden_channels, 
+            heads=heads, 
+            dropout=dropout_rate
+        )
+
+        # The input here should be (hidden_channels * heads).
+        # In the last layer, we use concat=False to average the heads
+        # and ensure that the output has exactly the size 'out_channels' (1).
+        self.conv2 = GATConv(
+            hidden_channels * heads, 
+            out_channels, 
+            heads=1, 
+            concat=False, 
+            dropout=dropout_rate
+        )
+
+    def forward(self, x, edge_index):
+        x = F.dropout(x, p=self.dropout_rate, training=self.training)
+        
+        x = self.conv1(x, edge_index)
+        
+        # (Exponential Linear Unit is preferred over ReLU in GATs)
+        x = F.elu(x)
+        
+        x = F.dropout(x, p=self.dropout_rate, training=self.training)
+        
+        x = self.conv2(x, edge_index)
 
         return torch.sigmoid(x)
 
