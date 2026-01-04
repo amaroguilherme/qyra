@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import os
+from interface.helpers.exceptions import DimensionMismatchError
 from interface.models.gnn import GATClassifier, GCNClassifier
 
 try:
@@ -52,6 +53,14 @@ class QyraEngine:
                 q_matrix (List[List]): The QUBO matrix.
                 learn (bool): If True, Active Learning.
         """
+        num_nodes_tensor = x.shape[0]
+        num_nodes_matrix = len(q_matrix)
+
+        if num_nodes_tensor != num_nodes_matrix:
+            raise DimensionMismatchError(
+                f"Input tensor has {num_nodes_tensor} nodes, but Matrix Q has {num_nodes_matrix}."
+            )
+
         x, edge_index = x.to(self.device), edge_index.to(self.device)
         
         if learn:
