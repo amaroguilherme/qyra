@@ -5,6 +5,7 @@ import os
 from unittest.mock import MagicMock, patch
 from interface.core.engine import QyraEngine
 from interface.helpers.exceptions import DimensionMismatchError
+from interface.models.gnn import GATClassifier
 
 
 @pytest.fixture
@@ -25,8 +26,10 @@ def mock_core_solver():
 @pytest.fixture
 def engine(tmp_path):
     """Creates a clean instance of the Engine for each test."""
+    model = GATClassifier(in_channels=5, hidden_channels=16)
     model_path = tmp_path / "test_model.pt"
-    return QyraEngine(num_features=5, model_path=str(model_path))
+
+    return QyraEngine(model=model, model_path=str(model_path))
 
 @pytest.fixture
 def fake_data():
@@ -108,17 +111,18 @@ class TestQyraEngineLogic:
     def test_save_and_load_model(self, tmp_path, fake_data):
         """Check persistence: Save -> Load -> Equal Weights"""
         x, edge_index, q_matrix = fake_data
+        model = GATClassifier(in_channels=5, hidden_channels=16)
         path = tmp_path / "persist.pt"
         
         # 1. Create Engine A, train it a bit, and save it.
-        engine_a = QyraEngine(5, str(path))
+        engine_a = QyraEngine(model, str(path))
         engine_a.solve(x, edge_index, q_matrix, learn=True)
         engine_a.save_model()
         
         assert path.exists()
         
         # 2. Create Engine B by loading it from the same file.
-        engine_b = QyraEngine(5, str(path))
+        engine_b = QyraEngine(model, str(path))
         
         # 3. Compare the weights of the first layer.
         weights_a = list(engine_a.model.parameters())[0]

@@ -11,17 +11,15 @@ except ImportError:
     print("Warning: Solver lib not found. Make sure you have compiled it.")
 
 class QyraEngine:
-    def __init__(self, num_features, model_path="qyra_base_model.pt"):
+    def __init__(self, model: GATClassifier | GCNClassifier, model_path="qyra_base_model.pt"):
         """
         Args:
-            num_features: Number of input features (e.g., time series size). 
+            model: GNN model architecture. For now, GAT or GCN. 
             model_path: Path to save/load the GNN weights.
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model = model.to(self.device)
         self.model_path = model_path
-        
-        # TODO: THIS SHOULD BE A OBJECT PARAMETER, PASSED ON CREATION
-        self.model = GATClassifier(in_channels=num_features, hidden_channels=16).to(self.device)
         
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.01)
         
