@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "qyra"
+version = "0.1.0"
+description = "Library of hybrid combinatorial optimization guided by GNNs."
+authors = [{name = "Guilherme Amaro"}]
+requires-python = ">=3.13"
+readme = "README.md"
+
+dependencies = [
+    "Flask>=3.1.2",
+    "maturin>=1.10.2",
+    "numpy>=2.3.5",
+    "pandas>=2.3.3",
+    "pytest>=9.0.2",
+    "torch>=2.9.1",
+    "torch-geometric>=2.7.0",
+    "yfinance>=1.0",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]

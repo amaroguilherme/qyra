@@ -37,7 +37,7 @@ class QyraEngine:
 
     def save_model(self):
         "Save the current learning progress to use next time."
-        torch.save(self.model.state_dict(), self.model_path)
+        torch.save(self.model.state_dict(), self.model_path) # TODO: SCALE THIS BY SAVING ON HUGGING FACE HUB
         print(f"[Qyra] Model saved to {self.model_path}")
 
 
