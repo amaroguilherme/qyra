@@ -2,8 +2,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import os
-from interface.helpers.exceptions import DimensionMismatchError
-from interface.models.gnn import GATClassifier, GCNClassifier
+from qyra.interface.helpers.exceptions import DimensionMismatchError
+from qyra.interface.models.gnn import GATClassifier, GCNClassifier
 
 try:
     import core_qyra_solver
