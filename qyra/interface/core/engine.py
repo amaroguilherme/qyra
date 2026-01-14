@@ -11,7 +11,7 @@ except ImportError:
     print("Warning: Solver lib not found. Make sure you have compiled it.")
 
 class QyraEngine:
-    def __init__(self, model: GATClassifier | GCNClassifier, model_path="qyra_base_model.pt"):
+    def __init__(self, model: GATClassifier | GCNClassifier):
         """
         Args:
             model: GNN model architecture. For now, GAT or GCN. 
@@ -19,26 +19,8 @@ class QyraEngine:
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = model.to(self.device)
-        self.model_path = model_path
         
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.01)
-        
-        # Warm Start
-        self._load_pretrained()
-
-
-    def _load_pretrained(self):
-        if os.path.exists(self.model_path):
-            print(f"[Qyra] Loading pre-trained model from: {self.model_path}")
-            self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
-        else:
-            print("[Qyra] No model found. Cold Start.")
-
-
-    def save_model(self):
-        "Save the current learning progress to use next time."
-        torch.save(self.model.state_dict(), self.model_path) # TODO: SCALE THIS BY SAVING ON HUGGING FACE HUB
-        print(f"[Qyra] Model saved to {self.model_path}")
 
 
     def solve(self, x, edge_index, q_matrix, rust_iterations=5000, learn=True):
@@ -72,7 +54,7 @@ class QyraEngine:
         # necessary if we are in training mode but intend to export the data.
         priors_list = priors_tensor.detach().cpu().squeeze().tolist()
 
-        best_solution, energy = core_qyra_solver.solve(
+        best_solution, energy = qyra.solve(
             q_matrix, 
             priors_list, 
             iterations=rust_iterations
