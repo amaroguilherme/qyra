@@ -6,7 +6,7 @@ from qyra.interface.helpers.exceptions import DimensionMismatchError
 from qyra.interface.models.gnn import GATClassifier, GCNClassifier
 
 try:
-    import core_qyra_solver
+    from qyra import qyra
 except ImportError:
     print("Warning: Solver lib not found. Make sure you have compiled it.")
 

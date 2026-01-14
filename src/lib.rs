@@ -92,7 +92,7 @@ fn solve(matrix: Vec<Vec<f64>>, priors: Vec<f64>, iterations: usize) -> PyResult
 }
 
 #[pymodule]
-fn core_qyra_solver(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn qyra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     eprintln!("Echo received by the solver.");
     m.add_function(wrap_pyfunction!(solve, m)?)?;
     Ok(())
