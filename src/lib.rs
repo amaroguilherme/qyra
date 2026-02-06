@@ -12,55 +12,71 @@ impl Problem {
         Problem { matrix, num_vars }
     }
 
-    fn calculate_energy(&self, solution: &Vec<u8>) -> f64 {
+    fn calculate_full_energy(&self, solution: &Vec<u8>) -> f64 {
         let mut energy = 0.0;
         for i in 0..self.num_vars {
-            for j in 0..self.num_vars {
-                if solution[i] == 1 && solution[j] == 1 {
-                    energy += self.matrix[i][j];
+            if solution[i] == 1 {
+                for j in 0..self.num_vars {
+                    if solution[j] == 1 {
+                        energy += self.matrix[i][j];
+                    }
                 }
             }
         }
         energy
     }
+
+    fn calculate_delta(&self, solution: &Vec<u8>, var_idx: usize) -> f64 {
+        let is_turning_on = solution[var_idx] == 0;
+        let self_term = self.matrix[var_idx][var_idx];
+
+        let mut interaction_term = 0.0;
+        for i in 0..self.num_vars {
+            if i != var_idx && solution[i] == 1 {
+                interaction_term += self.matrix[var_idx][i] + self.matrix[i][var_idx];
+            }
+        }
+
+        if is_turning_on {
+            self_term + interaction_term
+        } else {
+            -(self_term + interaction_term)
+        }
+    }
 }
 
-// --- Hybrid Simulated Annealing ---
 fn run_optimizer(qubo: &Problem, max_iterations: usize, priors: &Vec<f64>) -> (Vec<u8>, f64) {
-    eprintln!("Optimizing...");
     let mut rng = rand::thread_rng();
 
-    // Warm Start using model's "priors"
     let mut current_solution: Vec<u8> = priors.iter().map(|&p| {
         if rng.r#gen::<f64>() < p { 1 } else { 0 }
     }).collect();
 
-    let mut current_energy = qubo.calculate_energy(&current_solution);
+    let mut current_energy = qubo.calculate_full_energy(&current_solution);
+    
     let mut best_solution = current_solution.clone();
     let mut best_energy = current_energy;
 
-    let mut temperature = 10.0;
-    let cooling_rate = 0.99;
+    let mut temperature = 100.0;
+    let cooling_rate = 0.9995;
 
     for _ in 0..max_iterations {
         let var_to_flip = rng.gen_range(0..qubo.num_vars);
         
-        let mut new_solution = current_solution.clone();
-        new_solution[var_to_flip] = 1 - new_solution[var_to_flip];
-        
-        let new_energy = qubo.calculate_energy(&new_solution);
-        let energy_diff = new_energy - current_energy;
+        let delta = qubo.calculate_delta(&current_solution, var_to_flip);
+        let new_energy = current_energy + delta;
 
-        let accept = if energy_diff < 0.0 {
+        let accept = if delta < 0.0 {
             true
         } else {
-            let probability = (-energy_diff / temperature).exp();
+            let probability = (-delta / temperature).exp();
             rng.r#gen::<f64>() < probability
         };
 
         if accept {
-            current_solution = new_solution;
+            current_solution[var_to_flip] = 1 - current_solution[var_to_flip];
             current_energy = new_energy;
+
             if current_energy < best_energy {
                 best_energy = current_energy;
                 best_solution = current_solution.clone();
@@ -68,7 +84,7 @@ fn run_optimizer(qubo: &Problem, max_iterations: usize, priors: &Vec<f64>) -> (V
         }
         temperature *= cooling_rate;
     }
-    eprintln!("Optimization completed.");
+
     (best_solution, best_energy)
 }
 
