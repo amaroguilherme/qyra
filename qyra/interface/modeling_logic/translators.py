@@ -1,9 +1,12 @@
 from abc import ABC
+import torch
 import mygene
 import numpy as np
 import pandas as pd
+import time
 
-from rdkit import Chem
+
+from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, rdFingerprintGenerator
 
 class BaseTranslator(ABC):
@@ -305,11 +308,17 @@ class PharmacologyTranslator(BaseTranslator):
         
         return np.array(features)
 
-    def build_qubo(self, alpha_synergy=1.0):
+    def build_qubo(self, alpha_synergy=1.0, sparsity_penalty=0.05):
+        """
+        Args:
+            alpha_synergy (float): Reward for biological efficacy. 
+            sparsity_penalty (float): The Toxicity Cost. 
+                The higher this value, the fewer drugs it selects.
+        """
         n = len(self.drugs_df)
         q_matrix = np.zeros((n, n))
         
-        print("Building Q Matrix...")
+        print(f"Building Matrix Q (Alpha={alpha_synergy}, Penalty={sparsity_penalty})...")
         
         for i in range(n):
             targets_str = self.drugs_df.iloc[i]['target']
@@ -322,10 +331,54 @@ class PharmacologyTranslator(BaseTranslator):
                     if ensembl_id and ensembl_id in self.disease_scores:
                         drug_score += self.disease_scores[ensembl_id]
             
-            # Negative diagonal = Reward
             q_matrix[i, i] = -1.0 * (drug_score * alpha_synergy)
             
             if q_matrix[i, i] == 0: 
-                q_matrix[i, i] = 0.5 
+                q_matrix[i, i] = 1.0 
+
+        # This creates pressure to choose few items.
+        penalty_matrix = np.full((n, n), sparsity_penalty)
+        
+        np.fill_diagonal(penalty_matrix, 0.0)
+        
+        q_matrix = q_matrix + penalty_matrix
             
         return q_matrix.tolist()
+    
+    def build_similarity_graph(self, threshold=0.7):
+        """
+            Constructs the graph topology based on chemical similarity.
+            Connects drugs that are structurally similar.
+
+            Args:
+                threshold (float): 0.0 to 1.0. Above this value, an edge is created.
+                0.7 is a good value for similar scaffolds.
+
+            Returns:
+                edge_index (torch.LongTensor): Format [2, Num_Edges] for the GNN.
+        """
+        print(f"Building Chemical Similarity Graph (Threshold={threshold})...")
+
+        mols = [Chem.MolFromSmiles(s) for s in self.drugs_df['smiles']]
+        fps = [AllChem.GetMorganFingerprintAsBitVect(x, 2, nBits=1024) for x in mols if x is not None]
+        
+        edges_src = []
+        edges_dst = []
+        
+        num_drugs = len(fps)
+        
+        t0 = time.time()
+        
+        for i in range(num_drugs):
+            sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[i+1:])
+            
+            for idx, score in enumerate(sims):
+                j = i + 1 + idx
+                if score >= threshold:
+                    edges_src.extend([i, j])
+                    edges_dst.extend([j, i])
+                    
+        print(f"Graph built in {time.time()-t0:.2f}s.")
+        print(f"Total number of edges: {len(edges_src)} (Connectivity: {len(edges_src)/num_drugs:.1f} edges/node)")
+        
+        return torch.tensor([edges_src, edges_dst], dtype=torch.long)
