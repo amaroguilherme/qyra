@@ -1,6 +1,10 @@
 from abc import ABC
+import mygene
 import numpy as np
+import pandas as pd
 
+from rdkit import Chem
+from rdkit.Chem import AllChem, rdFingerprintGenerator
 
 class BaseTranslator(ABC):
     def __init__(self):
@@ -207,3 +211,121 @@ class OneHotTranslator(BaseTranslator):
                 q_matrix[v][u] += self.penalty
 
         return q_matrix
+
+class PharmacologyTranslator(BaseTranslator):
+    def __init__(self, disease_path="interface/datasets/disease_targets.csv", 
+                 drugs_path="interface/datasets/repurposing_drugs_20200324.txt",
+                 samples_path="interface/datasets/repurposing_samples_20200324.txt"):
+
+        super().__init__()
+        self.disease_path = disease_path
+        self.drugs_path = drugs_path
+        self.samples_path = samples_path
+        
+        self.disease_scores = {} 
+        self.gene_map = {}       
+        self.drugs_df = None
+        
+        self.mg = mygene.MyGeneInfo()
+
+    def load_data(self):
+        print("Loading and unifying datasets (Clinical + Chemical)...")
+        
+        df_disease = pd.read_csv(self.disease_path)
+        self.disease_scores = dict(zip(df_disease.gene_ensembl_id, df_disease.association_score))
+        
+        df_clinical = pd.read_csv(self.drugs_path, sep="\t", skiprows=9, encoding="ISO-8859-1")
+        
+        try:
+            df_samples = pd.read_csv(self.samples_path, sep="\t", skiprows=9, encoding="ISO-8859-1")
+        except Exception:
+            df_samples = pd.read_csv(self.samples_path, sep="\t", encoding="ISO-8859-1")
+
+        print(f" Clinical: {df_clinical.shape}, Samples: {df_samples.shape}")
+        
+        self.drugs_df = pd.merge(df_clinical, df_samples[['pert_iname', 'smiles']], on='pert_iname', how='inner')
+        self.drugs_df = self.drugs_df.drop_duplicates(subset=['pert_iname'])
+        
+        # Reset the index after the dropna to ensure the rows are 0, 1, 2, 3...
+        # This ensures that .iloc[i] works correctly afterwards.
+        self.drugs_df = self.drugs_df.dropna(subset=['smiles', 'target']).reset_index(drop=True)
+        
+        print(f"Unified Dataset: {len(self.drugs_df)} drugs with Structure + Targets.")
+        
+        self._resolve_gene_ids()
+
+    def _resolve_gene_ids(self):
+        print("Mapping gene symbols to Ensembl IDs...")
+        unique_symbols = set()
+        for targets in self.drugs_df['target']:
+            if isinstance(targets, str):
+                unique_symbols.update(targets.split('|'))
+        
+        if not unique_symbols:
+            print("⚠️ Warning: No targets found to map.")
+            return
+
+        results = self.mg.querymany(list(unique_symbols), scopes='symbol', fields='ensembl.gene', species='human', verbose=False)
+        
+        hits = 0
+        for res in results:
+            symbol = res.get('query')
+            if 'ensembl' in res and 'gene' in res['ensembl']:
+                ens = res['ensembl']
+                ens_id = ens[0]['gene'] if isinstance(ens, list) else ens['gene']
+                self.gene_map[symbol] = ens_id
+                hits += 1
+        print(f"✅ Mapeamento concluído: {hits}/{len(unique_symbols)} genes resolvidos.")
+
+    def get_gnn_features(self):
+        features = []
+        valid_indices = []
+        
+        print("Generating Morgan Fingerprints...")
+        
+        mf_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+
+        for idx, row in self.drugs_df.iterrows():
+            smiles = row['smiles']
+            try:
+                mol = Chem.MolFromSmiles(smiles)
+                if mol:
+                    fp = mf_gen.GetFingerprint(mol)
+                    
+                    arr = np.zeros((1,))
+                    AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
+                    
+                    features.append(arr)
+                    valid_indices.append(idx)
+            except:
+                continue
+        
+        self.drugs_df = self.drugs_df.iloc[valid_indices].reset_index(drop=True)
+        self.register_labels(self.drugs_df['pert_iname'].tolist())
+        
+        return np.array(features)
+
+    def build_qubo(self, alpha_synergy=1.0):
+        n = len(self.drugs_df)
+        q_matrix = np.zeros((n, n))
+        
+        print("Building Q Matrix...")
+        
+        for i in range(n):
+            targets_str = self.drugs_df.iloc[i]['target']
+            drug_score = 0.0
+            
+            if isinstance(targets_str, str):
+                targets = targets_str.split('|')
+                for t in targets:
+                    ensembl_id = self.gene_map.get(t)
+                    if ensembl_id and ensembl_id in self.disease_scores:
+                        drug_score += self.disease_scores[ensembl_id]
+            
+            # Negative diagonal = Reward
+            q_matrix[i, i] = -1.0 * (drug_score * alpha_synergy)
+            
+            if q_matrix[i, i] == 0: 
+                q_matrix[i, i] = 0.5 
+            
+        return q_matrix.tolist()
