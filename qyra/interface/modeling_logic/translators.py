@@ -216,6 +216,16 @@ class OneHotTranslator(BaseTranslator):
         return q_matrix
 
 class PharmacologyTranslator(BaseTranslator):
+    EXCLUDED_KEYWORDS = [
+        "anesthe",      
+        "contrast",     
+        "diagnostic",   
+        "sedati",       
+        "muscle relax", 
+        "analgesic",    
+        "antiseptic"   
+    ]
+
     def __init__(self, disease_path="interface/datasets/disease_targets.csv", 
                  drugs_path="interface/datasets/repurposing_drugs_20200324.txt",
                  samples_path="interface/datasets/repurposing_samples_20200324.txt"):
@@ -278,7 +288,7 @@ class PharmacologyTranslator(BaseTranslator):
                 ens_id = ens[0]['gene'] if isinstance(ens, list) else ens['gene']
                 self.gene_map[symbol] = ens_id
                 hits += 1
-        print(f"✅ Mapeamento concluído: {hits}/{len(unique_symbols)} genes resolvidos.")
+        print(f"Mapping completed: {hits}/{len(unique_symbols)} genes resolved.")
 
     def get_gnn_features(self):
         features = []
@@ -320,8 +330,26 @@ class PharmacologyTranslator(BaseTranslator):
         
         print(f"Building Matrix Q (Alpha={alpha_synergy}, Penalty={sparsity_penalty})...")
         
+        blocked_count = 0
+        
         for i in range(n):
-            targets_str = self.drugs_df.iloc[i]['target']
+            row = self.drugs_df.iloc[i]
+            
+            is_toxic = False
+            indication = str(row.get('indication', '')).lower()
+            moa = str(row.get('moa', '')).lower()
+            
+            for keyword in self.EXCLUDED_KEYWORDS:
+                if keyword in indication or keyword in moa:
+                    is_toxic = True
+                    break
+            
+            if is_toxic:
+                q_matrix[i, i] = 1000.0
+                blocked_count += 1
+                continue
+            
+            targets_str = row['target']
             drug_score = 0.0
             
             if isinstance(targets_str, str):
@@ -331,17 +359,17 @@ class PharmacologyTranslator(BaseTranslator):
                     if ensembl_id and ensembl_id in self.disease_scores:
                         drug_score += self.disease_scores[ensembl_id]
             
+            # Negative Diagonal = Reward
             q_matrix[i, i] = -1.0 * (drug_score * alpha_synergy)
             
             if q_matrix[i, i] == 0: 
                 q_matrix[i, i] = 1.0 
 
-        # This creates pressure to choose few items.
         penalty_matrix = np.full((n, n), sparsity_penalty)
-        
         np.fill_diagonal(penalty_matrix, 0.0)
-        
         q_matrix = q_matrix + penalty_matrix
+        
+        print(f"Active Security Layer: {blocked_count} dangerous/irrelevant drugs were blocked.")
             
         return q_matrix.tolist()
     
